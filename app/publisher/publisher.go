@@ -2,6 +2,8 @@ package main
 
 import (//dependecies	
 	"fmt" // to log
+	 "net"
+	"time"
 	"net/http" // run http func
 	"github.com/julienschmidt/httprouter"//http router -> web server for our API
 	log "github.com/sirupsen/logrus" // to log
@@ -17,24 +19,38 @@ var rabbit_password = os.Getenv("RABBIT_PASSWORD")
 
 func main() {
 
+	conn, err := amqp.DialConfig("amqp://" + rabbit_user + ":" +rabbit_password + "@" + rabbit_host + ":" + rabbit_port + "/", amqp.Config{
+		Dial: func(network, addr string) (net.Conn, error) {
+			return net.DialTimeout(network, addr, time.Second*2)
+		},
+		Heartbeat:  time.Second, 
+	})
+	if err != nil {
+		log.Fatalf("%s: %s", "Connection Failed", err)
+	}
+	log.Printf("conn: %v, err: %v", conn, err)
+		
+
 	//define webserver
 	router := httprouter.New()
 
 	// define a route => publish/ here is the message
 	router.POST("/publish/:message", func (w http.ResponseWriter, r *http.Request, p httprouter.Params){
 		//submit func
+		if (conn.IsClosed()){ fmt.Println("connection closed") }
 		submit(w, r, p)
 	})
 
 	fmt.Println("Running..")
 	//startup the app with htpp and server on port 80
 	log.Fatal(http.ListenAndServe(":80", router))
+
 }
 // now a webserver is up and running in go !
 //create and define the submit fun
 
 func submit(writer http.ResponseWriter, request *http.Request, p httprouter.Params) {
-	 
+	
 	//grab the message (POST request)
 	message := p.ByName("message")
 
@@ -49,7 +65,7 @@ func submit(writer http.ResponseWriter, request *http.Request, p httprouter.Para
 		log.Fatalf("%s: %s", "Failed to connect to RabbitMQ", err)
 	}
 
-	
+
 	defer conn.Close() //defer the conection and close it when the function is exits
 
 	//create a channel to talk to the queue using the connection
